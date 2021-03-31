@@ -4,6 +4,9 @@ from _thread import *
 import sqlite3
 
 
+online = []
+
+
 conn = sqlite3.connect('main_db', check_same_thread=False)
 cursor = conn.cursor()
 
@@ -26,12 +29,14 @@ class Klient:
         for i in database:
             if (i[2] == self.nrpesel):
                 isReady = False
+            if(i[3] == self.nrkonta):
+                isReady = False
         if (isReady):
             cursor.execute(
                 "INSERT INTO Persons (FirstName, LastName, nrPesel, nrKonta, pin, Saldo) VALUES (?, ?, ?, ?, ?, ?)",
                 values)
             conn.commit()
-            print('The ' + self.firstname + ' ' + self.lastname + ' has been added to the database')
+            print('The ' + self.firstname + ' ' + self.lastname + ' has been added to the database. Check nrkonta and nr pesel')
         else:
             print('The ' + self.firstname + ' ' + self.lastname + ' is already in the database')
 
@@ -48,7 +53,9 @@ class Klient:
 # p1 = Klient('Mykyta', 'Burdeniuk', 99112100000, 123456789)
 #
 # p2 = Klient('Mateusz', 'Kozanowski', 99231341123, 543214321, '1234') Here we create new client and added PIN, is automatically set '0000'
-
+#
+# p3 = Klient('Mateusz', 'Kowalski', 123456789, 123412349)
+#
 
 ServerSideSocket = socket.socket()
 host = '127.0.0.1'
@@ -68,170 +75,194 @@ def multi_threaded_client(connection):
     connection.sendall(str.encode('-----------------------------Witamy w Marcin Selecki / Mykyta Burdeniuk BANK-----------------------------\n'
                                   'Logowanie do systemy...\n'))
     isLoggin = False
-    while True:
-        cursor.execute("SELECT * FROM Persons")
-        database = cursor.fetchall()
+    try:
+        while True:
+            cursor.execute("SELECT * FROM Persons")
+            database = cursor.fetchall()
 
-        if (not isLoggin):
-            while True:
-                isntHave = True
-                connection.sendall(str.encode('nrPesel:'))
-                login = connection.recv(2048)
-                login = int(login.decode('utf-8'))
+            if (not isLoggin):
+                while True:
+                    isntHave = True
+                    connection.sendall(str.encode('nrPesel:'))
+                    login = connection.recv(2048)
+                    login = int(login.decode('utf-8'))
+
+                    for i in database:
+                        if (i[2] == login):
+                            isntHave = False
+                            while True:
+                                if (login not in online):
+                                    connection.sendall(str.encode('PIN:'))
+                                    data = connection.recv(2048)
+                                    data = data.decode('utf-8')
+                                    if (data == i[5]):
+                                        connection.sendall(str.encode('Welcome!\nPress enter to continue...'))
+                                        isLoggin = True
+                                        online.append(login)
+                                        print(online)
+                                        break
+                                    else:
+                                        connection.sendall(str.encode('Zle podales PIN. Sproboj ponownie...\n'))
+                                        continue
+                                else:
+                                    connection.sendall(str.encode('Klient is loggined now. Press enter try again'))
+                                    break
+
+                    if (isLoggin):
+                        break
+                    if (isntHave):
+                        connection.sendall(str.encode('\nNie ma takiego konta. Sproboj ponownie...\n'))
+                        continue
+
+
+            connection.sendall(str.encode('1 - Saldo \n2 - wplata gotowki \n3 - wyplata gotowki \n4 - przelew bakowy \n5 - wyloguj \nWybierz operacje: '))
+            counter = 0
+            data = connection.recv(2048)
+            data = data.decode('utf-8')
+            if not data:
+                break
+            if (data =='1'):
+                cursor.execute("SELECT * FROM Persons")
+                database = cursor.fetchall()
 
                 for i in database:
                     if (i[2] == login):
-                        isntHave = False
-                        while True:
-                            connection.sendall(str.encode('PIN:'))
-                            data = connection.recv(2048)
-                            data = data.decode('utf-8')
-                            if (data == i[5]):
-                                connection.sendall(str.encode('Welcome!\nPress enter to continue...'))
-                                isLoggin = True
-                                break
-                            else:
-                                connection.sendall(str.encode('Zle podales PIN. Sproboj ponownie...\n'))
-                                continue
-                if (isLoggin):
-                    break
-                if (isntHave):
-                    connection.sendall(str.encode('\nNie ma takiego konta. Sproboj ponownie...\n'))
+                        connection.sendall(str.encode('Saldo:' + str('%.2f' % i[4]) + 'zl.\nPress enter to continue...\n'))
+            elif (data == '2'):
+                cursor.execute("SELECT * FROM Persons")
+                database = cursor.fetchall()
+
+                connection.sendall(str.encode('Wpisz kwote wplaty: '))
+                kwota = connection.recv(2048)
+                kwota = kwota.decode('utf-8')
+
+                for i in database:
+                    if (i[2] == login):
+                        counter=counter+1
+                        konto = i[3]
+                        Saldo = i[4]
+
+
+                if (counter == 0):
+                    connection.sendall(str.encode('Nie znaleziono konta.\nPress enter to continue...\n'))
                     continue
 
 
-        connection.sendall(str.encode('1 - Saldo \n2 - wplata gotowki \n3 - wyplata gotowki \n4 - przelew bakowy \nWybierz operacje: '))
-        counter = 0
-        data = connection.recv(2048)
-        data = data.decode('utf-8')
-        if not data:
-            break
-        if (data =='1'):
-            cursor.execute("SELECT * FROM Persons")
-            database = cursor.fetchall()
+                connection.sendall(str.encode('Dokonano wplaty: ' + kwota + 'zl. Saldo: ' + str('%.2f' % (Saldo+int(kwota))) + 'zl.\nPress enter to continue...\n'))
 
-            for i in database:
-                if (i[2] == login):
-                    print(login)
-                    connection.sendall(str.encode('Saldo:' + str('%.2f' % i[4]) + 'zl.\nPress enter to continue...\n'))
-        elif (data == '2'):
-            cursor.execute("SELECT * FROM Persons")
-            database = cursor.fetchall()
+                kwota = int(kwota)
+                konto = int(konto)
+                purchases = [kwota, konto]
 
-            connection.sendall(str.encode('Wpisz kwote wplaty: '))
-            kwota = connection.recv(2048)
-            kwota = kwota.decode('utf-8')
+                cursor.execute('UPDATE Persons SET Saldo=Saldo + ? WHERE nrKonta = ?', purchases)
+                conn.commit()
 
-            for i in database:
-                if (i[2] == login):
-                    counter=counter+1
-                    konto = i[3]
-                    Saldo = i[4]
-
-
-            if (counter == 0):
-                connection.sendall(str.encode('Nie znaleziono konta.\nPress enter to continue...\n'))
                 continue
 
+            elif (data == '3'):
+                cursor.execute("SELECT * FROM Persons")
+                database = cursor.fetchall()
 
-            connection.sendall(str.encode('Dokonano wplaty: ' + kwota + 'zl. Saldo: ' + str('%.2f' % (Saldo+int(kwota))) + 'zl.\nPress enter to continue...\n'))
+                connection.sendall(str.encode('Wpisz kwote wyplaty: '))
+                kwota = connection.recv(2048)
+                kwota = kwota.decode('utf-8')
 
-            kwota = int(kwota)
-            konto = int(konto)
-            purchases = [kwota, konto]
-
-            cursor.execute('UPDATE Persons SET Saldo=Saldo + ? WHERE nrKonta = ?', purchases)
-            conn.commit()
-
-            continue
-
-        elif (data == '3'):
-            cursor.execute("SELECT * FROM Persons")
-            database = cursor.fetchall()
-
-            connection.sendall(str.encode('Wpisz kwote wyplaty: '))
-            kwota = connection.recv(2048)
-            kwota = kwota.decode('utf-8')
-
-            counter = 0
-            for i in database:
-                if (i[2] == login):
-                    counter=counter+1
-                    Saldo = i[4]
-
-            if (counter == 0):
-                connection.sendall(str.encode('Nie znaleziono konta.\nPress enter to continue...\n'))
-                continue
-
-            for i in database:
-                if (i[3] == int(konto)):
-                    if (i[4]<int(kwota) or i[4] < 0):
-                        connection.sendall(str.encode('Masz niewystarczajaco srodkow na koncie dla tej operacji. Masz:' + str(i[4]) + 'zl na koncie.\nBrakuje do tej operacji: '
-                                                      + str(int(kwota) - i[4]) + 'zl\nPress enter to continue...\n'))
-                        kwota='0'
-                        continue
-
-
-            connection.sendall(str.encode('Kwota wyplaty: ' + kwota + 'zl. Saldo: ' + str('%.2f' % (Saldo - int(kwota))) + '\nPress enter to continue...\n'))
-
-            kwota = int(kwota)
-            konto = int(konto)
-            purchases = [kwota, konto]
-
-            cursor.execute('UPDATE Persons SET Saldo=Saldo - ? WHERE nrKonta = ?', purchases)
-            conn.commit()
-            results = cursor.fetchall()
-
-            for i in results:
-                connection.sendall(str.encode(i))
-
-        elif (data == '4'):
-            cursor.execute("SELECT * FROM Persons")
-            database = cursor.fetchall()
-
-            correct = True
-
-            for i in database:
-                if (i[2] == login):
-                    nrKonta = i[3]
-
-
-            connection.sendall(str.encode('Wpisz kwote przelewu: '))
-            kwota = connection.recv(2048)
-            kwota = kwota.decode('utf-8')
-
-            for i in database:
-                if (i[2] == login):
-                    if(i[4]<int(kwota)):
-                        connection.sendall(str.encode(
-                            'Masz niewystarczajaco srodkow na koncie dla tej operacji. Masz:' + str(
-                                i[4]) + 'zl na koncie.\nBrakuje do tej operacji: '
-                            + str(int(kwota) - i[4]) + 'zl\nPress enter to continue...\n'))
-                        correct = False
-                        continue
-
-            if(correct):
-                connection.sendall(str.encode('Wpisz numer konta docelowego: '))
-                konto = connection.recv(2048)
-                konto = konto.decode('utf-8')
                 counter = 0
                 for i in database:
-                    if (i[3] == int(konto)):
+                    if (i[2] == login):
                         counter = counter + 1
-                        purchases = [kwota, nrKonta]
-                        cursor.execute('UPDATE Persons SET Saldo=Saldo - ? WHERE nrKonta = ?', purchases)
-                        purchases = [kwota, konto]
-                        cursor.execute('UPDATE Persons SET Saldo=Saldo + ? WHERE  nrKonta = ?', purchases)
-                        conn.commit()
-                        results = cursor.fetchall()
+                        Saldo = i[4]
 
-                        connection.sendall(str.encode(
-                            'Przelew na konto: ' + konto + '. Kwota: ' + kwota + 'zl wykonano!' + '\nPress enter to continue...\n'))
+                if (counter == 0):
+                    connection.sendall(str.encode('Nie znaleziono konta.\nPress enter to continue...\n'))
+                    continue
 
-            if (counter == 0):
-                connection.sendall(str.encode('Nie znaleziono konta.\nPress enter to continue...\n'))
+                for i in database:
+                    if (i[2] == login):
+                        if (i[4] < int(kwota) or i[4] < 0):
+                            connection.sendall(str.encode(
+                                'Masz niewystarczajaco srodkow na koncie dla tej operacji. Masz:' + str(
+                                    i[4]) + 'zl na koncie.\nBrakuje do tej operacji: '
+                                + str(int(kwota) - i[4]) + 'zl\nPress enter to continue...\n'))
+                            kwota = '0'
+                            continue
+
+                connection.sendall(str.encode('Kwota wyplaty: ' + kwota + 'zl. Saldo: ' + str('%.2f' % (Saldo - int(kwota))) + '\nPress enter to continue...\n'))
+
+                kwota = int(kwota)
+                konto = login
+                purchases = [kwota, konto]
+
+                cursor.execute('UPDATE Persons SET Saldo=Saldo - ? WHERE nrPesel = ?', purchases)
+                conn.commit()
+                results = cursor.fetchall()
+
+                for i in results:
+                    connection.sendall(str.encode(i))
+
+            elif (data == '4'):
+                cursor.execute("SELECT * FROM Persons")
+                database = cursor.fetchall()
+
+                correct = True
+
+                for i in database:
+                    if (i[2] == login):
+                        nrKonta = i[3]
+
+
+                connection.sendall(str.encode('Wpisz kwote przelewu: '))
+                kwota = connection.recv(2048)
+                kwota = kwota.decode('utf-8')
+
+                for i in database:
+                    if (i[2] == login):
+                        if(i[4]<int(kwota)):
+                            connection.sendall(str.encode(
+                                'Masz niewystarczajaco srodkow na koncie dla tej operacji. Masz:' + str(
+                                    i[4]) + 'zl na koncie.\nBrakuje do tej operacji: '
+                                + str(int(kwota) - i[4]) + 'zl\nPress enter to continue...\n'))
+                            correct = False
+                            continue
+
+                if(correct):
+                    connection.sendall(str.encode('Wpisz numer konta docelowego: '))
+                    konto = connection.recv(2048)
+                    konto = konto.decode('utf-8')
+                    counter = 0
+                    for i in database:
+                        if (i[3] == int(konto)):
+                            counter = counter + 1
+                            purchases = [kwota, nrKonta]
+                            cursor.execute('UPDATE Persons SET Saldo=Saldo - ? WHERE nrKonta = ?', purchases)
+                            purchases = [kwota, konto]
+                            cursor.execute('UPDATE Persons SET Saldo=Saldo + ? WHERE  nrKonta = ?', purchases)
+                            conn.commit()
+                            results = cursor.fetchall()
+
+                            connection.sendall(str.encode(
+                                'Przelew na konto: ' + konto + '. Kwota: ' + kwota + 'zl wykonano!' + '\nPress enter to continue...\n'))
+
+                if (counter == 0):
+                    connection.sendall(str.encode('Nie znaleziono konta.\nPress enter to continue...\n'))
+                    continue
+
+
+            elif (data == '5'):
+                isLoggin = False
+                online.remove(login)
+                print(online)
+                connection.sendall(str.encode('Jestes wylogowany \nPress enter to continue login...'))
                 continue
 
+            else:
+                connection.sendall(str.encode('\nZle podales dane\nPress enter to continue...\n'))
+                continue
+    except:
+        isLoggin = False
+        online.remove(login)
+        print(online)
+        connection.sendall(str.encode('Apka wywalila'))
 
 
     connection.close()
